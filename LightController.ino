@@ -1,5 +1,5 @@
-
 #include <Arduino.h>
+#include <EEPROM.h>
 #include <SPI.h>
 #include <LPD8806.h>
 #include <Time.h>
@@ -9,17 +9,12 @@
 #include "Credentials.h"
 #include "bytearray.h"
 #include "bytearray.c"
+#include "EEPROMTemplate.h"
 
 #define SUNRISE 1
 #define SUNSET 2
-
-// initialize WiFly
-// loop
-// send a parameterized GET to a web server
-//    - show connection and response
-// send a parameterized POST to a web server
-//    - show connection and response
-// 
+#define SHOW_CUR 3
+#define SHOW_TGT 4
 
 // Connect the WiFly TX pin to the Arduino RX pin  (Transmit from WiFly-> Receive into Arduino)
 // Connect the WiFly RX pin to the Arduino TX pin  (Transmit from Arduino-> Receive into WiFly)
@@ -43,34 +38,19 @@
 #define IDX_WT_SETUP_06 IDX_WT_SETUP_05 +1
 #define IDX_WT_SETUP_07 IDX_WT_SETUP_06 +1
 
-#define IDX_WT_STATUS_SENSORS    IDX_WT_SETUP_07 +1
-#define IDX_WT_STATUS_TEMP       IDX_WT_STATUS_SENSORS +1
-#define IDX_WT_STATUS_RSSI       IDX_WT_STATUS_TEMP +1
-#define IDX_WT_STATUS_BATT       IDX_WT_STATUS_RSSI +1
-
-#define IDX_WT_MSG_JOIN          IDX_WT_STATUS_BATT +1
-#define IDX_WT_MSG_START_WEBCLIENT IDX_WT_MSG_JOIN +1
-#define IDX_WT_MSG_RAM           IDX_WT_MSG_START_WEBCLIENT +1
-#define IDX_WT_MSG_START_WIFLY   IDX_WT_MSG_RAM +1
-#define IDX_WT_MSG_WIFI          IDX_WT_MSG_START_WIFLY +1
-#define IDX_WT_MSG_APP_SETTINGS  IDX_WT_MSG_WIFI +1
-#define IDX_WT_MSG_WIRE_RX       IDX_WT_MSG_APP_SETTINGS +1
-#define IDX_WT_MSG_WIRE_TX       IDX_WT_MSG_WIRE_RX +1
-#define IDX_WT_MSG_FAIL_OPEN     IDX_WT_MSG_WIRE_TX +1
-
-#define IDX_WT_HTML_HEAD_01      IDX_WT_MSG_FAIL_OPEN + 1
-#define IDX_WT_HTML_HEAD_02      IDX_WT_HTML_HEAD_01 + 1
-#define IDX_WT_HTML_HEAD_03      IDX_WT_HTML_HEAD_02 + 1
-#define IDX_WT_HTML_HEAD_04      IDX_WT_HTML_HEAD_03 + 1
-
-#define IDX_WT_POST_HEAD_01      IDX_WT_HTML_HEAD_04 + 1
-#define IDX_WT_POST_HEAD_02      IDX_WT_POST_HEAD_01 + 1
-#define IDX_WT_POST_HEAD_03      IDX_WT_POST_HEAD_02 + 1
-#define IDX_WT_POST_HEAD_04      IDX_WT_POST_HEAD_03 + 1
+// various buffer sizes
+#define REQUEST_BUFFER_SIZE 180
+#define POST_BUFFER_SIZE 180
+#define TEMP_BUFFER_SIZE 180
 
 #define MSG_CONNECTION_OPEN "*OPEN*"
 #define MSG_CONNECTION_CLOSE "*CLOSE*"
 
+/////////////////////////////////////////////
+//// PROGMEM Data
+/////////////////////////////////////////////
+
+//WiFlySerial data
 prog_char s_WT_SETUP_00[] PROGMEM = "nist1-la.ustiming.org";  /* change to your favorite NTP server */
 prog_char s_WT_SETUP_01[] PROGMEM = "set u m 0x1";
 prog_char s_WT_SETUP_02[] PROGMEM = "set comm remote 0";
@@ -79,28 +59,22 @@ prog_char s_WT_SETUP_04[] PROGMEM = "set comm time 2000";
 prog_char s_WT_SETUP_05[] PROGMEM = "set comm size 180";
 prog_char s_WT_SETUP_06[] PROGMEM = "set comm match 0x9";
 prog_char s_WT_SETUP_07[] PROGMEM = "time";
-prog_char s_WT_STATUS_SENSORS[] PROGMEM = "show q 0x177 ";
-prog_char s_WT_STATUS_TEMP[] PROGMEM = "show q t ";
-prog_char s_WT_STATUS_RSSI[] PROGMEM = "show rssi ";
-prog_char s_WT_STATUS_BATT[] PROGMEM = "show battery ";
-prog_char s_WT_MSG_JOIN[] PROGMEM = "Credentials Set, Joining ";
-prog_char s_WT_MSG_START_WEBCLIENT[] PROGMEM = "Starting WebClientGetPut - Please wait. ";
-prog_char s_WT_MSG_RAM[] PROGMEM = "RAM :";
-prog_char s_WT_MSG_START_WIFLY[] PROGMEM = "Started WiFly, RAM :";
-prog_char s_WT_MSG_WIFI[] PROGMEM = "Initial WiFi Settings :";
-prog_char s_WT_MSG_APP_SETTINGS[] PROGMEM = "Configure WebClientGetPost Settings...";
-prog_char s_WT_MSG_WIRE_RX[] PROGMEM = "Arduino Rx Pin (connect to WiFly Tx):";
-prog_char s_WT_MSG_WIRE_TX[] PROGMEM = "Arduino Tx Pin (connect to WiFly Rx):";
-prog_char s_WT_MSG_FAIL_OPEN[] PROGMEM = "Failed on opening connection to:";
-prog_char s_WT_HTML_HEAD_01[] PROGMEM = "HTTP/1.1 200 OK \r ";
-prog_char s_WT_HTML_HEAD_02[] PROGMEM = "Content-Type: text/html;charset=UTF-8\r ";
-prog_char s_WT_HTML_HEAD_03[] PROGMEM = " Content-Length: ";
-prog_char s_WT_HTML_HEAD_04[] PROGMEM = "Connection: close \r\n\r\n";
-prog_char s_WT_POST_HEAD_01[] PROGMEM = "HTTP/1.1\n";
-prog_char s_WT_POST_HEAD_02[] PROGMEM = "Content-Type: application/x-www-form-urlencoded\n";
-prog_char s_WT_POST_HEAD_03[] PROGMEM = "Content-Length: ";
-prog_char s_WT_POST_HEAD_04[] PROGMEM = "Connection: close\n\n";
 
+PROGMEM const char *WT_string_table[] = 	   
+{   
+  s_WT_SETUP_00,
+  s_WT_SETUP_01,
+  s_WT_SETUP_02,
+  s_WT_SETUP_03,
+  s_WT_SETUP_04,
+  s_WT_SETUP_05,
+  s_WT_SETUP_06,
+  s_WT_SETUP_07
+};
+
+/////////////////////////////////////////////
+//// Enums
+/////////////////////////////////////////////
 enum NetworkStatus
 {
   Disconnected = 0,
@@ -116,76 +90,59 @@ enum Status
     ERR_CMD = 0x01,
     ERR_PARAM = 0x02,
     ERR_TARGET = 0x04,
-    ERR_LINE = 0x08
+    ERR_LINE = 0x08,
+    
+    EEPROM_CONFIG = 0xFA
 };
 
-PROGMEM const char *WT_string_table[] = 	   
-{   
-  s_WT_SETUP_00,
-  s_WT_SETUP_01,
-  s_WT_SETUP_02,
-  s_WT_SETUP_03,
-  s_WT_SETUP_04,
-  s_WT_SETUP_05,
-  s_WT_SETUP_06,
-  s_WT_SETUP_07,
-  s_WT_STATUS_SENSORS,
-  s_WT_STATUS_TEMP,
-  s_WT_STATUS_RSSI,
-  s_WT_STATUS_BATT,
-  s_WT_MSG_JOIN,
-  s_WT_MSG_START_WEBCLIENT,
-  s_WT_MSG_RAM,
-  s_WT_MSG_START_WIFLY,
-  s_WT_MSG_WIFI,
-  s_WT_MSG_APP_SETTINGS,
-  s_WT_MSG_WIRE_RX,
-  s_WT_MSG_WIRE_TX,
-  s_WT_MSG_FAIL_OPEN,
-  s_WT_HTML_HEAD_01,
-  s_WT_HTML_HEAD_02,
-  s_WT_HTML_HEAD_03,
-  s_WT_HTML_HEAD_04,
-  s_WT_POST_HEAD_01,
-  s_WT_POST_HEAD_02,
-  s_WT_POST_HEAD_03,
-  s_WT_POST_HEAD_04
-};
-
-// various buffer sizes
-#define REQUEST_BUFFER_SIZE 180
-#define POST_BUFFER_SIZE 180
-#define TEMP_BUFFER_SIZE 180
+/////////////////////////////////////////////
+//// Configuration Struct
+/////////////////////////////////////////////
+struct Configuration
+{
+  unsigned long unique_id;
+  unsigned long client_id;
+  char client_name[32];
+  unsigned char current_red;
+  unsigned char current_green;
+  unsigned char current_blue;
+  unsigned char target_red;
+  unsigned char target_green;
+  unsigned char target_blue;
+} configuration;
 
 char chMisc;
 
+//Indexing
 int iRequest = 0;
 int iTrack = 0;
 int iLoopCounter = 0;
-int currentRed = 0;
-int currentGreen = 0;
-int currentBlue = 0;
-int targetRed = 0;
-int targetGreen = 0;
-int targetBlue = 0;
-int CurrentStatus = 0x00;
-int animationLength = 180000;
-
-WiFlySerial wifi(ARDUINO_RX_PIN ,ARDUINO_TX_PIN);
-char bufTemp[TEMP_BUFFER_SIZE];
-char NetStat = 0;
-
-struct ByteArray *dataBuffer;
-struct ByteArray *colorBuffer;
-struct ByteArray *lineBuffer;
-
-// Number of RGB LEDs in strand:
-int nLEDs = 150;
-int LightUpdateTime = 0;
-byte animation = 0;
 int index = -1;
 
+//Color settings
+uint32_t color_tmp = 0;
+
+//Animation settings
+byte animation = 0;
+int animation_length = 180000;
+int animation_last_update = 0;
+
+int nLEDs = 150; // Number of RGB LEDs in strand
+int CurrentStatus = 0x00;
+
+char bufTemp[TEMP_BUFFER_SIZE];
+char netstat = 0;
+
+struct ByteArray *data_buffer;
+struct ByteArray *color_buffer;
+struct ByteArray *line_buffer;
+
 LPD8806 strip = LPD8806(nLEDs);
+WiFlySerial wifi(ARDUINO_RX_PIN ,ARDUINO_TX_PIN);
+
+/////////////////////////////////////////////
+//// WiFlySerial Example Functions
+/////////////////////////////////////////////
 
 // Function for setSyncProvider
 time_t GetSyncTime() {
@@ -214,13 +171,12 @@ boolean Reconnect() {
   wifi.SendCommand(GetBuffer_P(IDX_WT_SETUP_02,bufTemp,TEMP_BUFFER_SIZE),">",bufTemp, REQUEST_BUFFER_SIZE);
   wifi.leave();
   wifi.setPassphrase(NETWORK_PASS);    
-  Serial << GetBuffer_P(IDX_WT_MSG_JOIN,bufTemp,TEMP_BUFFER_SIZE) << NETWORK_SSID << endl;
   wifi.join(NETWORK_SSID);
 
-  Serial << GetBuffer_P(IDX_WT_MSG_APP_SETTINGS, bufTemp, TEMP_BUFFER_SIZE) << endl;
   for (int i = 0; i< 7 ; i++) {
     wifi.SendCommand(GetBuffer_P(IDX_WT_SETUP_01 + i,bufTemp,TEMP_BUFFER_SIZE),">",bufTemp, REQUEST_BUFFER_SIZE);
   }
+  
   wifi.getDeviceStatus();
 
   // reboot if not working right yet.
@@ -232,8 +188,22 @@ boolean Reconnect() {
 
 }
 
-bool wifiConnected() { return ((NetStat & Connected) == Connected); }
-bool clientConnected() { return ((NetStat & ClientConnected) == ClientConnected); }
+/////////////////////////////////////////////
+//// Light Controller Functions
+/////////////////////////////////////////////
+bool wifiConnected() { return ((netstat & Connected) == Connected); }
+bool clientConnected() { return ((netstat & ClientConnected) == ClientConnected); }
+
+char GetHighTargetColor() 
+{ 
+  char high = 0;
+  
+  if(configuration.target_red > high) high = configuration.target_red;
+  if(configuration.target_green > high) high = configuration.target_green;
+  if(configuration.target_blue > high) high = configuration.target_blue;
+  
+  return high; 
+}
 
 void Print(char *data)
 {
@@ -241,32 +211,33 @@ void Print(char *data)
     Serial.flush();
 }
 
-/*
- * Set Functions
-*/
+/////////////////////////////////////////////
+//// Set Functions
+/////////////////////////////////////////////
 void SetCurrentValue()
 {
-    if((index = ByteArray_indexOf("=", 1, colorBuffer)) > 0)
+    Print("Setting Current Color");
+    if((index = ByteArray_indexOf("=", 1, color_buffer)) > 0)
     {
         char *color = (char *)malloc((sizeof(char) * (index + 1)));
         
-        ByteArray_grabChars(0, index, colorBuffer, color);
-        ByteArray_remove(0, 1, colorBuffer);
+        ByteArray_grabChars(0, index, color_buffer, color);
+        ByteArray_remove(0, 1, color_buffer);
         
         if(!strcmp(color, "red"))
         {
-            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
-            currentRed = atoi(color);
+            ByteArray_grabChars(0, color_buffer->data_len > 3 ? 3 : color_buffer->data_len, color_buffer, color);
+            configuration.current_red = atoi(color);
         }
         else if(!strcmp(color, "green"))
         {
-            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
-            currentGreen = atoi(color);
+            ByteArray_grabChars(0, color_buffer->data_len > 3 ? 3 : color_buffer->data_len, color_buffer, color);
+            configuration.current_green = atoi(color);
         }
         else if(!strcmp(color, "blue"))
         {
-            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
-            currentBlue = atoi(color);
+            ByteArray_grabChars(0, color_buffer->data_len > 3 ? 3 : color_buffer->data_len, color_buffer, color);
+            configuration.current_blue = atoi(color);
         }
         else
             CurrentStatus |= ERR_PARAM;
@@ -274,32 +245,33 @@ void SetCurrentValue()
         free(color);
     }
 
-    ByteArray_clear(colorBuffer);
+    ByteArray_clear(color_buffer);
 }
 
 void SetTargetValue()
 {
-    if((index = ByteArray_indexOf("=", 1, colorBuffer)) > 0)
+    Print("Setting Target Color");
+    if((index = ByteArray_indexOf("=", 1, color_buffer)) > 0)
     {
         char *color = (char *)malloc((sizeof(char) * (index + 1)));
         
-        ByteArray_grabChars(0, index, colorBuffer, color);
-        ByteArray_remove(0, 1, colorBuffer);
+        ByteArray_grabChars(0, index, color_buffer, color);
+        ByteArray_remove(0, 1, color_buffer);
         
         if(!strcmp(color, "red"))
         {
-            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
-            targetRed = atoi(color);
+            ByteArray_grabChars(0, color_buffer->data_len > 3 ? 3 : color_buffer->data_len, color_buffer, color);
+            configuration.target_red = atoi(color);
         }
         else if(!strcmp(color, "green"))
         {
-            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
-            targetGreen = atoi(color);
+            ByteArray_grabChars(0, color_buffer->data_len > 3 ? 3 : color_buffer->data_len, color_buffer, color);
+            configuration.target_green = atoi(color);
         }
         else if(!strcmp(color, "blue"))
         {
-            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
-            targetBlue = atoi(color);
+            ByteArray_grabChars(0, color_buffer->data_len > 3 ? 3 : color_buffer->data_len, color_buffer, color);
+            configuration.target_blue = atoi(color);
         }
         else
             CurrentStatus |= ERR_PARAM;
@@ -307,147 +279,138 @@ void SetTargetValue()
         free(color);
     }
 
-    ByteArray_clear(colorBuffer);
+    ByteArray_clear(color_buffer);
 }
 
 void SetAnimation()
 {
-//    Print("Setting animation");
-//        char *color = (char *)malloc((sizeof(char) * (index + 1)))
-//        
-//        ByteArray_grabChars(0, index, colorBuffer, color);
-//        ByteArray_remove(0, 1, colorBuffer);
-//
-//    if((index = ByteArray_indexOf("=", 1, colorBuffer)) > 0)
-//    {
-//        ByteArray_remove(0, 1, colorBuffer);
-//        if(ByteArray_grab(0, index, colorBuffer) == "id")
-//        {
-//            ByteArray_grab(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color)
-//            targetBlue = atoi(color);
-//        }
-//        else if(ByteArray_grab(0, index, colorBuffer) == "length")
-//        {
-//            ByteArray_remove(0, 1, colorBuffer);
-//            animationLength = atoi(ByteArray_grab(0, colorBuffer->data_len, colorBuffer));
-//        }
-//        else
-//            CurrentStatus |= ERR_PARAM;
-//    }
-//
-//    if(colorBuffer->data_len > 0)
-//        ByteArray_remove(0, colorBuffer->data_len, colorBuffer);
-}
-
-/*
- * Show Functions
-*/
-void ShowCurrentColor()
-{
-    Print("Showing current color");
-    for (int i=0; i < strip.numPixels(); i++) {
-      strip.setPixelColor(i, strip.Color(currentRed,currentGreen,currentBlue));
-    }
-    
-    strip.show();
-}
-
-void ShowTargetColor()
-{
-    Print("Showing target color");
-    for (int i=0; i < strip.numPixels(); i++) {
-      strip.setPixelColor(i, strip.Color(targetRed, targetGreen, targetBlue));
-    }
-    
-    strip.show();
-}
-
-/*
- * Parsing Functions
-*/
-void ParseCommandLine()
-{
-    Print("Parsing line");
-    
-    if(ByteArray_startsWith("?set:", 5, lineBuffer))
+    Print("Setting Animation");
+    if((index = ByteArray_indexOf("=", 1, color_buffer)) > 0)
     {
-      Print("Found set command");
-        ByteArray_remove(0, 5, lineBuffer);
-
-        if(ByteArray_startsWith("current:", 8, lineBuffer))
+        char *ani = (char *)malloc((sizeof(char) * (21)));
+        memset(ani, '\0', 21);
+        
+        ByteArray_grabChars(0, index, color_buffer, ani);
+        ByteArray_remove(0, 1, color_buffer);
+        
+        if(!strcmp(ani, "id"))
         {
-            ByteArray_remove(0, 8, lineBuffer);
-            Print("Setting current colors");
+            ByteArray_grabChars(0, color_buffer->data_len, color_buffer, ani);
+            animation = atoi(ani);
+        }
+        else if(!strcmp(ani, "length"))
+        {
+            ByteArray_grabChars(0, color_buffer->data_len, color_buffer, ani);
+            animation_length = atoi(ani);
+        }
+        else
+            CurrentStatus |= ERR_PARAM;
+            
+        free(ani);
+    }
 
-            while((index = ByteArray_indexOf("&", 1, lineBuffer)) > 0)
+    ByteArray_clear(color_buffer);
+}
+
+/////////////////////////////////////////////
+//// Client Status Commands
+/////////////////////////////////////////////
+void ClientStatusCheck()
+{
+    if((ByteArray_indexOf(MSG_CONNECTION_OPEN, 0, data_buffer) >= 0) && !clientConnected())
+    {
+        netstat |= (char)ClientConnected;
+        ByteArray_replace(MSG_CONNECTION_OPEN, "", 0, 0, data_buffer);
+    }
+    else if((ByteArray_indexOf(MSG_CONNECTION_CLOSE, 0, data_buffer) >= 0) && clientConnected())
+    {
+        netstat &= (char)(~ClientConnected);
+        ByteArray_replace(MSG_CONNECTION_CLOSE, "", 0, 0, data_buffer);
+    }
+}
+
+/////////////////////////////////////////////
+//// Parsing Functions
+/////////////////////////////////////////////
+void ParseCommandLine()
+{    
+    if(ByteArray_startsWith("?set:", 5, line_buffer))
+    {
+        ByteArray_remove(0, 5, line_buffer);
+
+        if(ByteArray_startsWith("current:", 8, line_buffer))
+        {
+            ByteArray_remove(0, 8, line_buffer);
+
+            while((index = ByteArray_indexOf("&", 1, line_buffer)) > 0)
             {
-                Print("Setting current color");
-                ByteArray_grab(0, index, lineBuffer, colorBuffer);
-                ByteArray_remove(0, 1, lineBuffer);
+                ByteArray_grab(0, index, line_buffer, color_buffer);
+                ByteArray_remove(0, 1, line_buffer);
                 SetCurrentValue();
-                Print("Set current color");
             }
             
-            //Grab the last/whole chunk, and place it in the colorBuffer
-            if(lineBuffer->data_len > 0)
+            //Grab the last/whole chunk, and place it in the color_buffer
+            if(line_buffer->data_len > 0)
             {
-                Print("Setting current color");
-                ByteArray_grab(0, lineBuffer->data_len, lineBuffer, colorBuffer);
-                Print("Set current color");
+                ByteArray_grab(0, line_buffer->data_len, line_buffer, color_buffer);
                 SetCurrentValue();
             }
+        }
+        else if(ByteArray_startsWith("target:", 7, line_buffer))
+        {
+            ByteArray_remove(0, 7, line_buffer);
+
+            while((index = ByteArray_indexOf("&", 1, line_buffer)) > 0)
+            {
+                ByteArray_grab(0, index, line_buffer, color_buffer);
+                ByteArray_remove(0, 1, line_buffer);
+                SetTargetValue();
+            }
             
-            Print("Done.");
-        }
-        else if(ByteArray_startsWith("target:", 7, lineBuffer))
-        {
-            ByteArray_remove(0, 7, lineBuffer);
-
-            while((index = ByteArray_indexOf("&", 1, lineBuffer)))
+            //Grab the last/whole chunk, and place it in the color_buffer
+            if(line_buffer->data_len > 0)
             {
-                //Grab the chunk, and place it in the colorBuffer
-                ByteArray_grab(0, index, lineBuffer, colorBuffer);
-
-                ByteArray_remove(0, 1, lineBuffer);
-                SetTargetValue();
-            }
-
-            //Grab the last/whole chunk, and place it in the colorBuffer
-            if(lineBuffer->data_len > 0)
-            {
-                ByteArray_grab(0, lineBuffer->data_len, lineBuffer, colorBuffer);
+                ByteArray_grab(0, line_buffer->data_len, line_buffer, color_buffer);
                 SetTargetValue();
             }
         }
-        else if(ByteArray_startsWith("animation:", 8, lineBuffer))
+        else if(ByteArray_startsWith("animation:", 10, line_buffer))
         {
-            while((index = ByteArray_indexOf("&", 1, lineBuffer)))
+            ByteArray_remove(0, 10, line_buffer);
+            while((index = ByteArray_indexOf("&", 1, line_buffer)) > 0)
             {
-                //Grab the chunk, and place it in the colorBuffer
-                //This isn't a color, but it's an available buffer
-                ByteArray_grab(0, index, lineBuffer, colorBuffer);
-
-                ByteArray_remove(0, 1, lineBuffer);
+                ByteArray_grab(0, index, line_buffer, color_buffer);
+                ByteArray_remove(0, 1, line_buffer);
                 SetAnimation();
             }
-
-            //Grab the chunk, and place it in the colorBuffer
-            //This isn't a color, but it's an available buffer
-            ByteArray_grab(0, lineBuffer->data_len, lineBuffer, colorBuffer);
-
-            SetAnimation();
+            
+            //Grab the last/whole chunk, and place it in the color_buffer
+            if(line_buffer->data_len > 0)
+            {
+                ByteArray_grab(0, line_buffer->data_len, line_buffer, color_buffer);
+                SetAnimation();
+            }
         }
         else
             CurrentStatus |= ERR_TARGET;
+            
+        if((CurrentStatus & ERR_TARGET) != ERR_TARGET)
+        {
+            Print("Saving Configuration");
+            EEPROM_write(0, (char)0x00);
+            EEPROM_write(1, configuration);
+            EEPROM_write(0, (char)EEPROM_CONFIG);
+            Print("Done");
+        }
     }
-    else if(ByteArray_startsWith("?show:", 6, lineBuffer))
+    else if(ByteArray_startsWith("?show:", 6, line_buffer))
     {
-        ByteArray_remove(0, 6, lineBuffer);
+        ByteArray_remove(0, 6, line_buffer);
 
-        if(ByteArray_startsWith("current:", 8, lineBuffer))
-            ShowCurrentColor();
-        else if(ByteArray_startsWith("target:", 7, lineBuffer))
-            ShowTargetColor();
+        if(ByteArray_startsWith("current:", 8, line_buffer))
+            animation = SHOW_CUR;
+        else if(ByteArray_startsWith("target:", 7, line_buffer))
+            animation = SHOW_TGT;
         else
             CurrentStatus |= ERR_TARGET;
     }
@@ -455,44 +418,30 @@ void ParseCommandLine()
         CurrentStatus |= ERR_CMD;
 }
 
-void ClientStatusCheck()
-{
-    if((ByteArray_indexOf(MSG_CONNECTION_OPEN, 0, dataBuffer) >= 0) && !clientConnected())
-    {
-        NetStat |= (char)ClientConnected;
-        ByteArray_replace(MSG_CONNECTION_OPEN, "", 0, 0, dataBuffer);
-    }
-    else if((ByteArray_indexOf(MSG_CONNECTION_CLOSE, 0, dataBuffer) >= 0) && clientConnected())
-    {
-        NetStat &= (char)(~ClientConnected);
-        ByteArray_replace(MSG_CONNECTION_CLOSE, "", 0, 0, dataBuffer);
-    }
-}
-
 void ParseBuffer()
 {
   ClientStatusCheck();
 
-  while(ByteArray_indexOf("\r\n", 2, dataBuffer) >= 0)
-      ByteArray_replace("\r\n", "\r", 2, 1, dataBuffer);
+  while(ByteArray_indexOf("\r\n", 2, data_buffer) >= 0)
+      ByteArray_replace("\r\n", "\r", 2, 1, data_buffer);
 
-  if((index = ByteArray_indexOf("\r", 1, dataBuffer)) >= 0)
+  if((index = ByteArray_indexOf("\r", 1, data_buffer)) >= 0)
   {
     Print("Found line");
       //Grab the line, and place it in a new buffer
-      ByteArray_grab(0, index, dataBuffer, lineBuffer);
+      ByteArray_grab(0, index, data_buffer, line_buffer);
 
       //Remove the trailing '\r'
-      ByteArray_remove(0, 1, dataBuffer);
+      ByteArray_remove(0, 1, data_buffer);
       
-      index = ByteArray_indexOf("?", 1, lineBuffer);
+      index = ByteArray_indexOf("?", 1, line_buffer);
       
       if(index >= 0)
       {
         Print("Command Found");
         
         if(index > 0)
-          ByteArray_remove(0, index, lineBuffer);//Remove any possible data prior to the actual command
+          ByteArray_remove(0, index, line_buffer);//Remove any possible data prior to the actual command
           
         ParseCommandLine();
       }
@@ -503,7 +452,7 @@ void ParseBuffer()
       }
       
       //Clear the line buffer
-      ByteArray_clear(lineBuffer);
+      ByteArray_clear(line_buffer);
       
       wifi << CurrentStatus;
       CurrentStatus = 0x00;
@@ -512,6 +461,9 @@ void ParseBuffer()
   ClientStatusCheck();
 }
 
+/////////////////////////////////////////////
+//// Receive functions
+/////////////////////////////////////////////
 void GetMessages()
 {
   int Timeout = millis() + 500;
@@ -522,7 +474,7 @@ void GetMessages()
     //Print("Data aquired");
     char *data = (char *)malloc(sizeof(char));
     data[0] = (char)wifi.read();
-    ByteArray_append(data, 1, dataBuffer);
+    ByteArray_append(data, 1, data_buffer);
     
     DataAquired = true;
     free(data);
@@ -535,7 +487,48 @@ void GetMessages()
 ////Arduino setup/loop
 /////////////////////////////////////////////
 void setup() 
-{
+{  
+  Serial.begin(9600);
+  
+  //Load Configuration from EEPROM
+  if(EEPROM.read(0) == EEPROM_CONFIG)
+  {
+    EEPROM_read(1, configuration);
+  }
+  else
+  {
+    Print("Creating configuration");
+    randomSeed(analogRead(0));
+    
+    //Assign ID by nibbles to increase randomness
+    unsigned long id = 0;
+    
+    for(int i = 0; i < (32 / 4); i++)
+    {
+      unsigned char nbyte = ((random(0,127) - random(0,127)) + random(0,127));
+      nbyte = (0x0F & nbyte);
+      id = ((id << (4 * i)) | nbyte);
+    }
+      
+    Serial << F("New ID: ") << id << endl;
+    
+    configuration.unique_id = id;
+    configuration.client_id = 0;
+    configuration.current_red = 0;
+    configuration.current_blue = 0;
+    configuration.current_green = 0;
+    configuration.target_red = 0;
+    configuration.target_green = 0;
+    configuration.target_blue = 0;
+    memset(&configuration.client_name, '\0', 32);
+    
+    EEPROM_write(1, configuration);
+    EEPROM_write(0, (char)EEPROM_CONFIG);
+    Print("Configuration saved");
+  }
+  
+  Serial << F("ID: ") << configuration.unique_id << endl;
+  
   // Start up the LED strip
   strip.begin();
   
@@ -543,32 +536,26 @@ void setup()
   strip.show();
   	
   //Wifi setup
-  Serial.begin(9600);
-  Serial << GetBuffer_P(IDX_WT_MSG_START_WEBCLIENT,bufTemp,TEMP_BUFFER_SIZE) << endl
-  << GetBuffer_P(IDX_WT_MSG_WIRE_RX,bufTemp,TEMP_BUFFER_SIZE) << ARDUINO_RX_PIN << endl << GetBuffer_P(IDX_WT_MSG_WIRE_TX,bufTemp,TEMP_BUFFER_SIZE) << ARDUINO_TX_PIN << endl;
-
   wifi.begin();
   
   // get MAC
   Serial << F("MAC: ") << wifi.getMAC(bufTemp, REQUEST_BUFFER_SIZE) << endl;
 
   Reconnect();
-
-  Serial << GetBuffer_P(IDX_WT_MSG_WIFI,bufTemp,TEMP_BUFFER_SIZE) << endl  
-    << F("IP: ") << wifi.getIP(bufTemp, REQUEST_BUFFER_SIZE) << endl;
+  Serial << F("IP: ") << wifi.getIP(bufTemp, REQUEST_BUFFER_SIZE) << endl;
   
-  memset (bufTemp,'\0',REQUEST_BUFFER_SIZE);
+  memset(bufTemp,'\0',REQUEST_BUFFER_SIZE);
   
-  NetStat = Connected;
+  netstat = Connected;
   
   // close any open connections
   wifi.closeConnection();
   
   //delete [] bufTemp;
   
-  dataBuffer = ByteArray_create(180,180);
-  lineBuffer = ByteArray_create(64,64);
-  colorBuffer = ByteArray_create(32,32);
+  data_buffer = ByteArray_create(180,180);
+  line_buffer = ByteArray_create(64,64);
+  color_buffer = ByteArray_create(32,32);
 }
 
 void loop()
@@ -580,21 +567,70 @@ void loop()
   {
     case SUNRISE:  
     //Wait to update lights so that sunrise takes 3 minutes
-    if((LightUpdateTime + 1417) <= millis())
+    if((animation_last_update + (animation_length / 127)) <= millis())
     {
-        if(++currentRed > targetRed) currentRed = targetRed;
-        if(++currentGreen > targetGreen) currentGreen = targetGreen;
-        if(++currentBlue > targetBlue) currentBlue = targetBlue;
+        if(++configuration.current_red > configuration.target_red) configuration.current_red = configuration.target_red;
+        if(++configuration.current_green > configuration.target_green) configuration.current_green = configuration.target_green;
+        if(++configuration.current_blue > configuration.target_blue) configuration.current_blue = configuration.target_blue;
         
         for (int i=0; i < strip.numPixels(); i++) {
-          strip.setPixelColor(i, strip.Color(currentRed,currentGreen,currentBlue));
+          strip.setPixelColor(i, strip.Color(configuration.current_red,configuration.current_green,configuration.current_blue));
         }
         
-        if((currentRed == targetRed) && (currentGreen == targetGreen) && (currentBlue == targetBlue)) animation = 0;
+        if((configuration.current_red == configuration.target_red) && (configuration.current_green == configuration.target_green) && (configuration.current_blue == configuration.target_blue))
+        { 
+          animation = 0;
+          EEPROM_write(1, configuration);
+        }
         
         strip.show();
-        LightUpdateTime = millis();
+        animation_last_update = millis();
     }
+    break;
+    
+    case SUNSET:  
+    //Wait to update lights so that sunrise takes 3 minutes
+    if((animation_last_update + (animation_length / GetHighTargetColor())) <= millis())
+    {
+        if(--configuration.current_red < 0) configuration.current_red = 0;
+        if(--configuration.current_green < 0) configuration.current_green = 0;
+        if(--configuration.current_blue < 0) configuration.current_blue = 0;
+        
+        for (int i=0; i < strip.numPixels(); i++) {
+          strip.setPixelColor(i, strip.Color(configuration.current_red,configuration.current_green,configuration.current_blue));
+        }
+        
+        if((configuration.current_red == 0) && (configuration.current_green == 0) && (configuration.current_blue == 0))
+        { 
+          animation = 0;
+          EEPROM_write(1, configuration);
+        }
+        
+        strip.show();
+        animation_last_update = millis();
+    }
+    break;
+    
+    case SHOW_CUR:
+    color_tmp = strip.Color(configuration.current_red, configuration.current_green, configuration.current_blue);
+    
+    for (int i=0; i < strip.numPixels(); i++) {
+      strip.setPixelColor(i, color_tmp);
+    }
+    
+    strip.show();
+    animation = 0;
+    break;
+    
+    case SHOW_TGT:
+    color_tmp = strip.Color(configuration.target_red, configuration.target_green, configuration.target_blue);
+    
+    for (int i=0; i < strip.numPixels(); i++) {
+      strip.setPixelColor(i, color_tmp);
+    }
+    
+    strip.show();
+    animation = 0;
     break;
   }
 }
