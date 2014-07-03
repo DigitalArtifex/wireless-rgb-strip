@@ -18,9 +18,10 @@ Usage Example:
 	Connection closed.
 
 Currently, you are able to use the following commands:
-	Syntax: command:parameter:value\r\n
+	Syntax: 
+		command:parameter:value\r\n
 
-	* set
+	set
 		current
 			Sets the current RGB value. (0-127)
 			Example: ?set:current:red=127&green=127&blue=127
@@ -34,7 +35,7 @@ Currently, you are able to use the following commands:
 			Note: You must set current and target RGB values before setting an
 			animation value.
 
-	* show 
+	show 
 		current
 			Shows the current RGB value. (0-127)
 			Example: ?show:current:
@@ -43,11 +44,11 @@ Currently, you are able to use the following commands:
 			Example: ?show:target:
 
 Currently, the following response statuses are returned upon receiving a new line:
-	* AOK = 0
-	* ERR_CMD = 1
-	* ERR_PARAM = 2
-	* ERR_TARGET = 4
-	* ERR_LINE = 8
+* AOK = 0
+* ERR_CMD = 1
+* ERR_PARAM = 2
+* ERR_TARGET = 4
+* ERR_LINE = 8
 
 Note: It is technically possible for status to contain each error. This will
    be utilized in a future version, so make sure to check for each error.
@@ -55,10 +56,10 @@ Note: It is technically possible for status to contain each error. This will
 Note: It can take up to 4 seconds for the device to act upon a show command on Arduino Uno Based Products
 
 Currently, these are the following implemented animations:
-	* Fade In (SUNSRISE) = 1
-	* Fade Out (SUNSET) = 2
-	* Show Current Color = 3
-	* Show Target Color = 4
+* Fade In (SUNSRISE) = 1
+* Fade Out (SUNSET) = 2
+* Show Current Color = 3
+* Show Target Color = 4
 
 ========================================================
 Software Dependencies:
