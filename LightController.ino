@@ -7,8 +7,8 @@
 #include <Streaming.h>
 #include <WiFlySerial.h>
 #include "Credentials.h"
-#include "MemoryFree.h"
 #include "bytearray.h"
+#include "bytearray.c"
 
 #define SUNRISE 1
 #define SUNSET 2
@@ -101,14 +101,22 @@ prog_char s_WT_POST_HEAD_02[] PROGMEM = "Content-Type: application/x-www-form-ur
 prog_char s_WT_POST_HEAD_03[] PROGMEM = "Content-Length: ";
 prog_char s_WT_POST_HEAD_04[] PROGMEM = "Connection: close\n\n";
 
-using namespace DigitalArtifex;
-
 enum NetworkStatus
 {
   Disconnected = 0,
   Connected = 1,
   ClientConnected = 2,
   CommandProcess = 4
+};
+
+enum Status
+{
+    //Command statuses
+    AOK = 0x00,
+    ERR_CMD = 0x01,
+    ERR_PARAM = 0x02,
+    ERR_TARGET = 0x04,
+    ERR_LINE = 0x08
 };
 
 PROGMEM const char *WT_string_table[] = 	   
@@ -160,19 +168,22 @@ int currentBlue = 0;
 int targetRed = 0;
 int targetGreen = 0;
 int targetBlue = 0;
+int CurrentStatus = 0x00;
+int animationLength = 180000;
 
 WiFlySerial wifi(ARDUINO_RX_PIN ,ARDUINO_TX_PIN);
 char bufTemp[TEMP_BUFFER_SIZE];
 char NetStat = 0;
 
-ByteArray dataBuffer(180);
-ByteArray colorBuffer(21);
-ByteArray lineBuffer(64);
+struct ByteArray *dataBuffer;
+struct ByteArray *colorBuffer;
+struct ByteArray *lineBuffer;
 
 // Number of RGB LEDs in strand:
 int nLEDs = 150;
 int LightUpdateTime = 0;
 byte animation = 0;
+int index = -1;
 
 LPD8806 strip = LPD8806(nLEDs);
 
@@ -224,163 +235,281 @@ boolean Reconnect() {
 bool wifiConnected() { return ((NetStat & Connected) == Connected); }
 bool clientConnected() { return ((NetStat & ClientConnected) == ClientConnected); }
 
-void setTargetValue()
+void Print(char *data)
 {
-  int index = -1;
-  
-  if((index = colorBuffer.indexOf("=")) >= 0)
-  {
-    if(colorBuffer.startsWith("red="))
-      targetRed = atoi(colorBuffer.substring(4, (colorBuffer.size() - 4)));
-    else if(colorBuffer.startsWith("green="))
-      targetGreen = atoi(colorBuffer.substring(6, (colorBuffer.size() - 6)));
-    else if(colorBuffer.startsWith("blue="))
-      targetBlue = atoi(colorBuffer.substring(5, (colorBuffer.size() - 5)));
-      
-    Serial << F("Set ") << colorBuffer.c_str() << endl;
-  }
-  
-  if(colorBuffer.size() > 0)
-    colorBuffer.remove(0, colorBuffer.size());
+    Serial.println(data);
+    Serial.flush();
 }
 
-void setCurrentValue()
+/*
+ * Set Functions
+*/
+void SetCurrentValue()
 {
-  int index = -1;
-  
-  if((index = colorBuffer.indexOf("=")) >= 0)
-  {
-    if(colorBuffer.startsWith("red="))
-      currentRed = atoi(colorBuffer.substring(4, (colorBuffer.size() - 4)));
-    else if(colorBuffer.startsWith("green="))
-      currentGreen = atoi(colorBuffer.substring(6, (colorBuffer.size() - 6)));
-    else if(colorBuffer.startsWith("blue="))
-      currentBlue = atoi(colorBuffer.substring(5, (colorBuffer.size() - 5)));
-      
-    Serial << F("Set ") << colorBuffer.c_str() << endl;
-    Serial << currentRed << " " << currentBlue << " " << currentGreen << endl;
-  }
-  
-  if(colorBuffer.size() > 0)
-    colorBuffer.remove(0, colorBuffer.size());
-}
-
-void _ParseBuffer()
-{
-  int index = -1;
-  if(dataBuffer.contains(MSG_CONNECTION_OPEN))
-  {
-    NetStat |= (char)ClientConnected;
-    Serial << F("Client Connected") << endl;
-    
-    dataBuffer.replace(MSG_CONNECTION_OPEN, "");
-  }
-  else if(dataBuffer.contains(MSG_CONNECTION_CLOSE))
-  {
-    NetStat &= (char)(~Connected);
-    Serial << F("Client Disconnected") << endl;
-    
-    dataBuffer.replace(MSG_CONNECTION_CLOSE, "");
-  }
-  
-  while(dataBuffer.contains("\r\n"))
-    dataBuffer.replace("\r\n","\r");
-    
-  if((index = dataBuffer.indexOf('\r')) >= 0)
-  {
-    Serial << F("Line found. ") << dataBuffer.size() << endl;
-    
-    lineBuffer.append(dataBuffer.grab(0, index));
-    dataBuffer.remove(0,1);
-
-    //Save cycles and do a quick check to see if its a command at all
-    if((index = lineBuffer.indexOf("?")) >= 0)
+    if((index = ByteArray_indexOf("=", 1, colorBuffer)) > 0)
     {
-      lineBuffer.remove(0, index);
-      Serial << F("Command found.") << lineBuffer.size() << endl;
-      
-      //Is it a set command?
-      if((index = lineBuffer.indexOf("?set")) >= 0)
-      {
-        Serial << F("Set command found.") << endl;
+        char *color = (char *)malloc((sizeof(char) * (index + 1)));
         
-        lineBuffer.remove(0,index + 5);
-
-        if(lineBuffer.startsWith("current:"))
+        ByteArray_grabChars(0, index, colorBuffer, color);
+        ByteArray_remove(0, 1, colorBuffer);
+        
+        if(!strcmp(color, "red"))
         {
-          lineBuffer.remove(0,8);
-
-          int red = 0;
-          int blue = 0;
-          int green = 0;
-
-          while((index = lineBuffer.indexOf('&')) >= 0)
-          {
-            colorBuffer.append(lineBuffer.grab(0, index));
-            lineBuffer.remove(0,1);
+            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
+            currentRed = atoi(color);
+        }
+        else if(!strcmp(color, "green"))
+        {
+            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
+            currentGreen = atoi(color);
+        }
+        else if(!strcmp(color, "blue"))
+        {
+            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
+            currentBlue = atoi(color);
+        }
+        else
+            CurrentStatus |= ERR_PARAM;
             
-            setCurrentValue();
-          }
-          
-          colorBuffer.append(lineBuffer.c_str());
-          setCurrentValue();
-        }
-        else if(lineBuffer.startsWith("target:"))
+        free(color);
+    }
+
+    ByteArray_clear(colorBuffer);
+}
+
+void SetTargetValue()
+{
+    if((index = ByteArray_indexOf("=", 1, colorBuffer)) > 0)
+    {
+        char *color = (char *)malloc((sizeof(char) * (index + 1)));
+        
+        ByteArray_grabChars(0, index, colorBuffer, color);
+        ByteArray_remove(0, 1, colorBuffer);
+        
+        if(!strcmp(color, "red"))
         {
-          lineBuffer.remove(0,7);
-
-          int red = 0;
-          int blue = 0;
-          int green = 0;
-
-          while((index = lineBuffer.indexOf('&')) >= 0)
-          {
-            colorBuffer.append(lineBuffer.grab(0, index));
-            lineBuffer.remove(0,1);
+            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
+            targetRed = atoi(color);
+        }
+        else if(!strcmp(color, "green"))
+        {
+            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
+            targetGreen = atoi(color);
+        }
+        else if(!strcmp(color, "blue"))
+        {
+            ByteArray_grabChars(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color);
+            targetBlue = atoi(color);
+        }
+        else
+            CurrentStatus |= ERR_PARAM;
             
-            setTargetValue();
-          }
-          
-          colorBuffer.append(lineBuffer.c_str());
-          setTargetValue();
-        }
-        
-        else if(lineBuffer.startsWith("animation:"))
-        {
-          lineBuffer.remove(0,10);
-          animation = atoi(lineBuffer.c_str());
-        }
-      }
+        free(color);
+    }
 
-      //Is it a show command?
-      else if((index = lineBuffer.indexOf("?show")) >= 0)
-      {
-        Serial << F("Show Command found.") << endl;
-        
-        lineBuffer.remove(0,index + 6);
+    ByteArray_clear(colorBuffer);
+}
 
-        if(lineBuffer.startsWith("current"))
-        {
-          for (int i=0; i < strip.numPixels(); i++) {
-            strip.setPixelColor(i, strip.Color(currentRed,currentGreen,currentBlue));
-          }
-          
-          strip.show();
-        }
-        else if(lineBuffer.startsWith("target"))
-        {
-          for (int i=0; i < strip.numPixels(); i++) {
-            strip.setPixelColor(i, strip.Color(targetRed,targetGreen,targetBlue));
-          }
-          
-          strip.show();
-        }
-      }
+void SetAnimation()
+{
+//    Print("Setting animation");
+//        char *color = (char *)malloc((sizeof(char) * (index + 1)))
+//        
+//        ByteArray_grabChars(0, index, colorBuffer, color);
+//        ByteArray_remove(0, 1, colorBuffer);
+//
+//    if((index = ByteArray_indexOf("=", 1, colorBuffer)) > 0)
+//    {
+//        ByteArray_remove(0, 1, colorBuffer);
+//        if(ByteArray_grab(0, index, colorBuffer) == "id")
+//        {
+//            ByteArray_grab(0, colorBuffer->data_len > 3 ? 3 : colorBuffer->data_len, colorBuffer, color)
+//            targetBlue = atoi(color);
+//        }
+//        else if(ByteArray_grab(0, index, colorBuffer) == "length")
+//        {
+//            ByteArray_remove(0, 1, colorBuffer);
+//            animationLength = atoi(ByteArray_grab(0, colorBuffer->data_len, colorBuffer));
+//        }
+//        else
+//            CurrentStatus |= ERR_PARAM;
+//    }
+//
+//    if(colorBuffer->data_len > 0)
+//        ByteArray_remove(0, colorBuffer->data_len, colorBuffer);
+}
+
+/*
+ * Show Functions
+*/
+void ShowCurrentColor()
+{
+    Print("Showing current color");
+    for (int i=0; i < strip.numPixels(); i++) {
+      strip.setPixelColor(i, strip.Color(currentRed,currentGreen,currentBlue));
     }
     
-    if(lineBuffer.size() > 0)
-      lineBuffer.remove(0, linebuffer.size());
+    strip.show();
+}
+
+void ShowTargetColor()
+{
+    Print("Showing target color");
+    for (int i=0; i < strip.numPixels(); i++) {
+      strip.setPixelColor(i, strip.Color(targetRed, targetGreen, targetBlue));
+    }
+    
+    strip.show();
+}
+
+/*
+ * Parsing Functions
+*/
+void ParseCommandLine()
+{
+    Print("Parsing line");
+    
+    if(ByteArray_startsWith("?set:", 5, lineBuffer))
+    {
+      Print("Found set command");
+        ByteArray_remove(0, 5, lineBuffer);
+
+        if(ByteArray_startsWith("current:", 8, lineBuffer))
+        {
+            ByteArray_remove(0, 8, lineBuffer);
+            Print("Setting current colors");
+
+            while((index = ByteArray_indexOf("&", 1, lineBuffer)) > 0)
+            {
+                Print("Setting current color");
+                ByteArray_grab(0, index, lineBuffer, colorBuffer);
+                ByteArray_remove(0, 1, lineBuffer);
+                SetCurrentValue();
+                Print("Set current color");
+            }
+            
+            //Grab the last/whole chunk, and place it in the colorBuffer
+            if(lineBuffer->data_len > 0)
+            {
+                Print("Setting current color");
+                ByteArray_grab(0, lineBuffer->data_len, lineBuffer, colorBuffer);
+                Print("Set current color");
+                SetCurrentValue();
+            }
+            
+            Print("Done.");
+        }
+        else if(ByteArray_startsWith("target:", 7, lineBuffer))
+        {
+            ByteArray_remove(0, 7, lineBuffer);
+
+            while((index = ByteArray_indexOf("&", 1, lineBuffer)))
+            {
+                //Grab the chunk, and place it in the colorBuffer
+                ByteArray_grab(0, index, lineBuffer, colorBuffer);
+
+                ByteArray_remove(0, 1, lineBuffer);
+                SetTargetValue();
+            }
+
+            //Grab the last/whole chunk, and place it in the colorBuffer
+            if(lineBuffer->data_len > 0)
+            {
+                ByteArray_grab(0, lineBuffer->data_len, lineBuffer, colorBuffer);
+                SetTargetValue();
+            }
+        }
+        else if(ByteArray_startsWith("animation:", 8, lineBuffer))
+        {
+            while((index = ByteArray_indexOf("&", 1, lineBuffer)))
+            {
+                //Grab the chunk, and place it in the colorBuffer
+                //This isn't a color, but it's an available buffer
+                ByteArray_grab(0, index, lineBuffer, colorBuffer);
+
+                ByteArray_remove(0, 1, lineBuffer);
+                SetAnimation();
+            }
+
+            //Grab the chunk, and place it in the colorBuffer
+            //This isn't a color, but it's an available buffer
+            ByteArray_grab(0, lineBuffer->data_len, lineBuffer, colorBuffer);
+
+            SetAnimation();
+        }
+        else
+            CurrentStatus |= ERR_TARGET;
+    }
+    else if(ByteArray_startsWith("?show:", 6, lineBuffer))
+    {
+        ByteArray_remove(0, 6, lineBuffer);
+
+        if(ByteArray_startsWith("current:", 8, lineBuffer))
+            ShowCurrentColor();
+        else if(ByteArray_startsWith("target:", 7, lineBuffer))
+            ShowTargetColor();
+        else
+            CurrentStatus |= ERR_TARGET;
+    }
+    else
+        CurrentStatus |= ERR_CMD;
+}
+
+void ClientStatusCheck()
+{
+    if((ByteArray_indexOf(MSG_CONNECTION_OPEN, 0, dataBuffer) >= 0) && !clientConnected())
+    {
+        NetStat |= (char)ClientConnected;
+        ByteArray_replace(MSG_CONNECTION_OPEN, "", 0, 0, dataBuffer);
+    }
+    else if((ByteArray_indexOf(MSG_CONNECTION_CLOSE, 0, dataBuffer) >= 0) && clientConnected())
+    {
+        NetStat &= (char)(~ClientConnected);
+        ByteArray_replace(MSG_CONNECTION_CLOSE, "", 0, 0, dataBuffer);
+    }
+}
+
+void ParseBuffer()
+{
+  ClientStatusCheck();
+
+  while(ByteArray_indexOf("\r\n", 2, dataBuffer) >= 0)
+      ByteArray_replace("\r\n", "\r", 2, 1, dataBuffer);
+
+  if((index = ByteArray_indexOf("\r", 1, dataBuffer)) >= 0)
+  {
+    Print("Found line");
+      //Grab the line, and place it in a new buffer
+      ByteArray_grab(0, index, dataBuffer, lineBuffer);
+
+      //Remove the trailing '\r'
+      ByteArray_remove(0, 1, dataBuffer);
+      
+      index = ByteArray_indexOf("?", 1, lineBuffer);
+      
+      if(index >= 0)
+      {
+        Print("Command Found");
+        
+        if(index > 0)
+          ByteArray_remove(0, index, lineBuffer);//Remove any possible data prior to the actual command
+          
+        ParseCommandLine();
+      }
+      else
+      {
+          Print("No Command Found");
+          CurrentStatus |= ERR_LINE;
+      }
+      
+      //Clear the line buffer
+      ByteArray_clear(lineBuffer);
+      
+      wifi << CurrentStatus;
+      CurrentStatus = 0x00;
   }
+
+  ClientStatusCheck();
 }
 
 void GetMessages()
@@ -390,11 +519,16 @@ void GetMessages()
   
   while(wifi.available() > 0 && Timeout > millis())
   {
-    dataBuffer.append((char)wifi.read());
+    //Print("Data aquired");
+    char *data = (char *)malloc(sizeof(char));
+    data[0] = (char)wifi.read();
+    ByteArray_append(data, 1, dataBuffer);
+    
     DataAquired = true;
+    free(data);
   }
   
-  if(DataAquired) _ParseBuffer();
+  if(DataAquired) ParseBuffer();
 }
 
 /////////////////////////////////////////////
@@ -410,18 +544,15 @@ void setup()
   	
   //Wifi setup
   Serial.begin(9600);
-  Serial << GetBuffer_P(IDX_WT_MSG_START_WEBCLIENT,bufTemp,TEMP_BUFFER_SIZE) << endl << GetBuffer_P(IDX_WT_MSG_RAM,bufTemp,TEMP_BUFFER_SIZE) << freeMemory() << endl
+  Serial << GetBuffer_P(IDX_WT_MSG_START_WEBCLIENT,bufTemp,TEMP_BUFFER_SIZE) << endl
   << GetBuffer_P(IDX_WT_MSG_WIRE_RX,bufTemp,TEMP_BUFFER_SIZE) << ARDUINO_RX_PIN << endl << GetBuffer_P(IDX_WT_MSG_WIRE_TX,bufTemp,TEMP_BUFFER_SIZE) << ARDUINO_TX_PIN << endl;
 
   wifi.begin();
-  Serial << F("Starting WebClientGetPost...") <<  wifi.getLibraryVersion(bufTemp, REQUEST_BUFFER_SIZE) << endl;
-
+  
   // get MAC
   Serial << F("MAC: ") << wifi.getMAC(bufTemp, REQUEST_BUFFER_SIZE) << endl;
 
   Reconnect();
-  // Set timezone adjustment: PST is -8h.  Adjust to your local timezone.
-  //adjustTime( (long) (-8 * 60 * 60) );
 
   Serial << GetBuffer_P(IDX_WT_MSG_WIFI,bufTemp,TEMP_BUFFER_SIZE) << endl  
     << F("IP: ") << wifi.getIP(bufTemp, REQUEST_BUFFER_SIZE) << endl;
@@ -433,7 +564,11 @@ void setup()
   // close any open connections
   wifi.closeConnection();
   
-  delete [] bufTemp;
+  //delete [] bufTemp;
+  
+  dataBuffer = ByteArray_create(180,180);
+  lineBuffer = ByteArray_create(64,64);
+  colorBuffer = ByteArray_create(32,32);
 }
 
 void loop()
