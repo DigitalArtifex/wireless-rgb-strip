@@ -25,7 +25,7 @@ Usage example using telnet
 Currently implemented commands
 ========================================================
 Syntax: command:parameter:valueCRLF
-* Note: It can take up to 4 seconds for the device to act upon a show command on Arduino Uno Based Products
+
 
 	set
 		current
@@ -48,6 +48,8 @@ Syntax: command:parameter:valueCRLF
 		target
 			Shows the target RGB value. 
 			Example: ?show:target:
+		Note: 
+			It can take up to 4 seconds for the device to act upon a show command on Arduino Uno Based Products
 
 ========================================================
 Response codes
