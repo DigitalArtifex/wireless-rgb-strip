@@ -1,7 +1,9 @@
-wireless-rgb-strip
+Wireless RGB LED Strip Controller
 ========================================================
 
-This is an Arduino project that incorporates WiFly module to control light settings wirelessly. The current version of this project is 0.0.2 ALPHA. The software works, but please expect bugs and/or instability issues. In the current version of the code, I recommend using only 150 LED's max on Arduino Uno based products.
+This is an Arduino project that incorporates WiFly module to control an RGB LED Strip. This is an alternative to infrared and connected RGB LED Strip controllers.
+
+The current version of this project is 0.0.2 ALPHA. In the current version of the code, I recommend using only 150 LED's max on Arduino Uno based products.
 
 ========================================================
 Usage example using telnet
@@ -22,7 +24,8 @@ Usage example using telnet
 ========================================================
 Currently implemented commands
 ========================================================
-	(Syntax: command:parameter:valueCRLF)
+Syntax: command:parameter:valueCRLF
+* Note: It can take up to 4 seconds for the device to act upon a show command on Arduino Uno Based Products
 
 	set
 		current
@@ -45,8 +48,6 @@ Currently implemented commands
 		target
 			Shows the target RGB value. 
 			Example: ?show:target:
-
-Note: It can take up to 4 seconds for the device to act upon a show command on Arduino Uno Based Products
 
 ========================================================
 Response codes
@@ -78,19 +79,20 @@ Change Log
 ========================================================
 
 July 3rd, 2014:
-	* Fixed set animation command
-	* Implemented unique ID creation
-	* Implemented configuration struct
-	* Moved color settings to configuration struct
-	* Now storing configuration in EEPROM
-	* Moved show current and target actions to the animation state machine
-	* Reduced flash consumption
-	* Cleaned up the sketch a bit
+* Fixed set animation command
+* Implemented unique ID creation
+* Implemented configuration struct
+* Moved color settings to configuration struct
+* Now storing configuration in EEPROM
+* Moved show current and target actions to the animation state machine
+* Reduced flash consumption
+* Cleaned up the sketch a bit
+* Formatted the Readme.md file for better viewing on GitHub
 
 July 2nd, 2014:
-	* Increased speed and stability
-	* Removed memory tracking files used in the WiFiSerial examples
-	* Further reduced memory usage
-	* Switched ByteArray implementation to pure C
-	* Added SUNSET (Fade Out) animation to the animation state machine
-	* Device now responds with a single byte status code
+* Increased speed and stability
+* Removed memory tracking files used in the WiFiSerial examples
+* Further reduced memory usage
+* Switched ByteArray implementation to pure C
+* Added SUNSET (Fade Out) animation to the animation state machine
+* Device now responds with a single byte status code
