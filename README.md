@@ -3,7 +3,9 @@ wireless-rgb-strip
 
 This is an Arduino project that incorporates WiFly module to control light settings wirelessly. The current version of this project is 0.0.2 ALPHA. The software works, but please expect bugs and/or instability issues. In the current version of the code, I recommend using only 150 LED's max on Arduino Uno based products.
 
-Usage Example:
+========================================================
+Usage example using telnet
+========================================================
 
 	james@James-Linux:~$ telnet 192.168.1.132 2000
 	Trying 192.168.1.132...
@@ -17,9 +19,10 @@ Usage Example:
 	telnet> close
 	Connection closed.
 
-Currently, you are able to use the following commands:
-	Syntax: 
-		command:parameter:value\r\n
+========================================================
+Currently implemented commands
+========================================================
+	(Syntax: command:parameter:valueCRLF)
 
 	set
 		current
@@ -37,37 +40,42 @@ Currently, you are able to use the following commands:
 
 	show 
 		current
-			Shows the current RGB value. (0-127)
+			Shows the current RGB value. 
 			Example: ?show:current:
 		target
-			Shows the target RGB value. (0-127)
+			Shows the target RGB value. 
 			Example: ?show:target:
 
-Currently, the following response statuses are returned upon receiving a new line:
+Note: It can take up to 4 seconds for the device to act upon a show command on Arduino Uno Based Products
+
+========================================================
+Response codes
+========================================================
+
+When a new line is received, the device will respond with one, or multiple, of the following response codes:
 * AOK = 0
 * ERR_CMD = 1
 * ERR_PARAM = 2
 * ERR_TARGET = 4
 * ERR_LINE = 8
 
-Note: It is technically possible for status to contain each error. This will
-   be utilized in a future version, so make sure to check for each error.
-
-Note: It can take up to 4 seconds for the device to act upon a show command on Arduino Uno Based Products
-
-Currently, these are the following implemented animations:
-* Fade In (SUNSRISE) = 1
+========================================================
+Currently implemented animations
+========================================================
+* Fade In (SUNRISE) = 1
 * Fade Out (SUNSET) = 2
 * Show Current Color = 3
 * Show Target Color = 4
 
 ========================================================
 Software Dependencies:
+========================================================
 
-This project has several dependancies, that are included under the 'dep' folder of this directory. These libraries should be installed to your Arduino directory located in your home folder.
+This project has several dependencies, that are included under the 'dep' folder of this directory. These libraries should be installed to your Arduino directory located in your home folder.
 
 ========================================================
 Change Log
+========================================================
 
 July 3rd, 2014:
 	* Fixed set animation command
